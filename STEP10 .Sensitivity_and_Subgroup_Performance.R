@@ -1,20 +1,20 @@
 # ==============================================================================
-# Step 10 Dynamic Predictive Modeling Pipeline: Sensitivity Analyses & Subgroup Performance
-# Sensitivity_and_Subgroup_Performance
+# STEP 10 Dynamic Predictive Modeling Pipeline: Sensitivity Analyses & Subgroup Performance
+# File: Sensitivity_and_Subgroup_Performance.R
 # ==============================================================================
 
 library(survival)
 library(mice)
 library(dplyr)
 
-# 确保全局随机种子，保证分析完全可复现
+# Set global random seed to ensure complete reproducibility
 set.seed(20260914)
 
 # ------------------------------------------------------------------------------
 # SECTION 1: Event-Time Location Sensitivity (Q25 / Q50 / Q75 Interval Sensitivity)
 # ------------------------------------------------------------------------------
 
-# 基于已有的 10 个插补数据集拟合锁定 10 变量 Cox 模型
+# Fit the locked 10-variable Cox model across 10 imputed datasets
 fit_sensitivity_q <- function(time_var) {
   fits <- lapply(1:10, function(m) {
     dat_m <- basic_long %>% filter(.imp == m)
@@ -30,7 +30,7 @@ res_q25 <- fit_sensitivity_q("time_q25")
 res_q50 <- fit_sensitivity_q("time_q50")
 res_q75 <- fit_sensitivity_q("time_q75")
 
-# 汇总与对比 Pooled HR
+# Summarize and compare Pooled HRs
 compare_q <- data.frame(
   term   = res_q50$term,
   HR_Q25 = res_q25$estimate,
@@ -41,7 +41,7 @@ compare_q <- data.frame(
     change_Q25_vs_Q50_pct = 100 * (HR_Q25 / HR_Q50 - 1),
     change_Q75_vs_Q50_pct = 100 * (HR_Q75 / HR_Q50 - 1),
     same_direction        = ((HR_Q25 > 1 & HR_Q50 > 1 & HR_Q75 > 1) | 
-                               (HR_Q25 < 1 & HR_Q50 < 1 & HR_Q75 < 1))
+                             (HR_Q25 < 1 & HR_Q50 < 1 & HR_Q75 < 1))
   )
 
 # ------------------------------------------------------------------------------
@@ -55,10 +55,10 @@ if (requireNamespace("icenReg", quietly = TRUE)) {
     fall_down + age + adlab_c + arthre + cesd10 + 
     hear + total_cognition + wspeed + puff + teeth
   
-  # 拟合区间删失 PH 模型
+  # Fit semi-parametric interval-censored proportional hazards model
   fit_ic <- icenReg::ic_sp(formula = form_ic, data = dat_ic, model = "ph", bs_samples = 0)
   
-  # 同一数据集的中点 Cox 模型
+  # Fit midpoint Cox model on the exact same dataset
   fit_mid <- coxph(
     Surv(followup_time, event_cox) ~ fall_down + age + adlab_c + arthre + cesd10 + 
       hear + total_cognition + wspeed + puff + teeth,
@@ -84,7 +84,7 @@ if (requireNamespace("icenReg", quietly = TRUE)) {
 # SECTION 3: Main Text & Supplementary Model Performance Summaries
 # ------------------------------------------------------------------------------
 
-# 1. 论文主文精简性能表
+# 1. Main text concise model performance table
 main_performance_table <- data.frame(
   Outcome_time          = c("Overall", "3 years", "5 years", "7 years"),
   Discrimination        = c("C-index = 0.6696", "AUC = 0.6886", "AUC = 0.6838", "AUC = 0.6942"),
@@ -94,7 +94,7 @@ main_performance_table <- data.frame(
   IPA                   = c(NA, 0.0094, 0.0131, 0.0203)
 )
 
-# 2. 论文主文模型变量标准化标签字典
+# 2. Variable label dictionary for reporting
 final_variable_labels <- c(
   "fall_down1"      = "History of falls",
   "age"             = "Age, years",
@@ -118,7 +118,7 @@ n_obs <- nrow(analysis_data)
 lp_mat <- matrix(NA_real_, nrow = n_obs, ncol = 10)
 risk5_mat <- matrix(NA_real_, nrow = n_obs, ncol = 10)
 
-# 从 10 个模型中提取个体预测 LP 与 5 年绝对风险
+# Extract individual linear predictors (LP) and 5-year absolute risks across 10 models
 for (m in 1:10) {
   dat_m <- basic_long %>% 
     filter(.imp == m) %>% 
@@ -146,7 +146,7 @@ analysis_subgroup <- analysis_data %>%
     age_group  = cut(age, breaks = c(60, 70, 80, Inf), right = FALSE, labels = c("60–69", "70–79", "≥80"))
   )
 
-# 计算亚组 C-index 及其解析 95% CI，以及 5 年预测 vs 观察风险
+# Calculate subgroup C-index with analytical 95% CI and predicted vs. observed 5-year risk
 compute_subgroup_metrics <- function(data, variable, dimension_name) {
   groups <- unique(as.character(data[[variable]]))
   groups <- groups[!is.na(groups)]
@@ -154,12 +154,12 @@ compute_subgroup_metrics <- function(data, variable, dimension_name) {
   res <- lapply(groups, function(g) {
     d <- data[as.character(data[[variable]]) == g, , drop = FALSE]
     
-    # C-index
+    # Concordance Index (C-index)
     conc <- concordance(Surv(followup_time, event_cox) ~ lp_mean, data = d, reverse = TRUE)
     C    <- conc$concordance
     SE   <- sqrt(conc$var)
     
-    # Kaplan-Meier 观察风险 (5年)
+    # Kaplan-Meier Observed Risk at 5 Years
     km   <- survfit(Surv(followup_time, event_cox) ~ 1, data = d)
     obs5 <- 1 - summary(km, times = 5, extend = TRUE)$surv
     
@@ -179,14 +179,14 @@ compute_subgroup_metrics <- function(data, variable, dimension_name) {
   bind_rows(res)
 }
 
-# 提取各临床维度性能
+# Extract subgroup performance metrics
 subgroup_results_raw <- bind_rows(
   compute_subgroup_metrics(analysis_subgroup, "age_group", "Age group"),
   compute_subgroup_metrics(analysis_subgroup, "gender",    "Sex"),
   compute_subgroup_metrics(analysis_subgroup, "rural",     "Place of residence")
 )
 
-# 格式化亚组表格（使用标准化展示标签）
+# Format subgroup results table using standardized labels
 subgroup_table_final <- subgroup_results_raw %>%
   mutate(
     Group = case_when(
@@ -206,7 +206,7 @@ subgroup_table_final <- subgroup_results_raw %>%
   )
 
 # ------------------------------------------------------------------------------
-# SECTION 5: Output Formatted Results to Console
+# SECTION 5: Console Output
 # ------------------------------------------------------------------------------
 
 cat("=== SECTION 1: Q25 / Q50 / Q75 Hazard Ratio Sensitivity ===\n")
